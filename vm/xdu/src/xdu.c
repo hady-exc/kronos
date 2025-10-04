@@ -172,9 +172,12 @@ int main(int argc, char** argv)
 	if (argc > 2) {
 		if (strcmp(argv[2], "get") == 0) 
 			copy();
-		else {
+		else if (strcmp(argv[2], "zfb") == 0) {
+			printf("%d blocks cleaned\n", zeroFreeBlocks());
+		} else {
 			help(); exit(0);
 		}
 	} else list();
+	unmount();
 	return 0;
 }

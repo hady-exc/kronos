@@ -68,4 +68,6 @@ void xdir_close(xDir* dir);
 
 iNode get_inode(int no);
 
+int zeroFreeBlocks();
+
 #endif

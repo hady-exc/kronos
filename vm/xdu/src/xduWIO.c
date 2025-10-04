@@ -3,6 +3,7 @@
 #include <winbase.h>
 #include "stdio.h"
 #include "xduTime.h"
+#include <assert.h>
   
 
 void set_time_attrs(HANDLE file, int created, int modified)
@@ -29,18 +30,33 @@ int isText(char* fname)
 	return ((len != 0) && ((strcmp(c, ".m") == 0) || (strcmp(c, ".d") == 0)));
 }
 
+#define RS (0x1e)
+#define CR (0x0d)
+#define LF (0x0a)
+
 char* toUTF8(char *src, int *src_len)
 {
 	int i = *src_len;
+	int lines = 0;
 	char* c = src;
 	while (i) {
-		if (*c == 0x1e) *c = 0x0a;
+		if (*(c++) == RS) lines++;
+		i--;
+	}
+	char* str = malloc(*src_len + lines);
+	assert(str != NULL);
+	c = src;
+	char* d = str;
+	i = *src_len;
+	while (i) {
+		if (*c == RS) { *(d++) = CR; *(d++) = LF; }
+		else *(d++) = *c;
 		c++; i--;
 	}
 
-	int wchar_len = MultiByteToWideChar(20866, 0, src, *src_len, NULL, 0);
+	int wchar_len = MultiByteToWideChar(20866, 0, str, (*src_len) + lines, NULL, 0);
 	wchar_t* wideString = malloc(sizeof(wchar_t) * wchar_len);
-	MultiByteToWideChar(20866, 0, src, *src_len, wideString, wchar_len);
+	MultiByteToWideChar(20866, 0, str, (*src_len) + lines, wideString, wchar_len);
 
 	int utf_len = WideCharToMultiByte(CP_UTF8, 0, wideString, wchar_len, NULL, 0, NULL, NULL);
 	char* utf = malloc(utf_len + 1);
@@ -48,6 +64,7 @@ char* toUTF8(char *src, int *src_len)
 	utf[utf_len] = 0;
 
 	free(wideString);
+	free(str);
 	*src_len = utf_len;
 	return utf;
 }
