@@ -146,14 +146,26 @@ void list()
 	listDir(0, 1);
 }
 
-void copy()
+void download()
 {
 	copy_dir(0, "TMP", "");
 }
 
+void upload(char* name)
+{
+	printf("Uploading %s to /host-exchange\n", name);
+	xDir root, upload;
+	xdir_open(0, &root);
+	xdir_create(&root, "host-exchange", &upload);
+	xdir_close(&root);
+
+	// do copy here
+	xdir_close(&upload);
+}
+
 void help()
 {
-	printf("xdu -- XD virtual vopume utility (c) 2025 Kronos\n");
+	printf("xdu -- XD virtual volume utility (c) 2025 Kronos\n");
 	printf("usage:\n");
 	printf("  xdu XDFile\n");
 	printf("     Prnts Kronos volume file tree, like as \"ls //*\"\n");
@@ -171,9 +183,15 @@ int main(int argc, char** argv)
 	mount(argv[1]);
 	if (argc > 2) {
 		if (strcmp(argv[2], "get") == 0) 
-			copy();
+			download();
 		else if (strcmp(argv[2], "zfb") == 0) {
 			printf("%d blocks cleaned\n", zeroFreeBlocks());
+		} else if (strcmp(argv[2], "put") == 0) {
+			if (argc <= 3) {
+				help; exit(0);
+			} else {
+				upload(argv[3]);
+			}
 		} else {
 			help(); exit(0);
 		}

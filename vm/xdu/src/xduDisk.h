@@ -48,6 +48,7 @@ void unmount();
 
 typedef struct {
 	iNode inode;
+	int inode_no;
 	int blocks_no;
 	int* blocks;
 	char* data;
@@ -64,6 +65,7 @@ typedef struct {
 } xDir;
 
 void xdir_open(int ino, xDir* dir);
+void xdir_create(xDir* parent, char* name, xDir* newdir);
 void xdir_close(xDir* dir);
 
 iNode get_inode(int no);
