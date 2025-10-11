@@ -211,7 +211,7 @@ void xfile_extend(xFile* file, int neweof)
     // allocate blocks
 	int required = (neweof + 4095) / 4096;
 	if (required > 8) {
-		if (file->inode->mode & i_long == 0) { // convert to long
+		if ((file->inode->mode & i_long) == 0) { // convert to long
 			if (required > 4096) fatal("files larger 4Mb are not supported, sorry\n");
 			int xb = 0;
 			if (allocBlocks(1, &xb)) fatal("not enough free space on XD volume\n");
@@ -221,10 +221,10 @@ void xfile_extend(xFile* file, int neweof)
 			file->inode->ref[0] = xb;
 			file->inode->mode |= i_long;
 			file->blocks = disk->iblocks + xb;
-			flushBlock(xb);
 		}
-		if (allocBlocks(required - file->blocks_no, &(disk->iblocks[file->inode->ref[0]]) + file->blocks_no));
+		if (allocBlocks(required - file->blocks_no, &(disk->iblocks[file->inode->ref[0]]) + file->blocks_no))
 			fatal("not enough free space on XD volume\n");
+		flushBlock(file->inode->ref[0]);
 	} else {
 		if (allocBlocks(required - file->blocks_no, file->inode->ref + file->blocks_no))
 			fatal("not enough free space on XD volume\n");
@@ -312,6 +312,22 @@ char* xfile_read(xFile* file) // allocate buffer, reads eof bytes and returns po
 	return file->data;
 }
 
+void xfile_write(xFile* file, char* data, int len)
+{
+	assert(file != null);
+	assert(file->inode->eof == len); // file must be properly created before
+	int w = 0;
+	while (w < len) {
+		int bx = w / 4096;
+		int wl = ((len - w) >= 4096) ? 4096 : (len - w);
+		assert(bx < file->blocks_no);
+		char* block = disk->cblocks + file->blocks[bx];
+		memcpy(block, data + w, wl);
+		flushBlock(file->blocks[bx]);
+		w += wl;
+	}
+}
+
 void xdir_open(int ino, xDir* dir)
 {
 	assert((dir != null));
@@ -387,7 +403,7 @@ void linkFile(xDir* dir, int no, char* name, int kind)
 		} else {
 			int blocks_no = (inode->eof + 4095) / 4096;
 			if (blocks_no >= 1024) { 			
-				fatal("Existing file %s is too long to be deleted. Consider removing by OS Excelsior first.\n", name);
+				fatal("Existing file %s is too long to be deleted. Consider removing by OS Excelsior.\n", name);
 			}
 			int* blocks = inode->ref;
 			if (inode->mode & i_long != 0) {

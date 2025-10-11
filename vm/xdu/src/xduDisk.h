@@ -54,15 +54,18 @@ typedef struct {
 	char* data;
 } xFile;
 
-void xfile_open(int ino, xFile *file);
-void xfile_close(xFile* file);
-char* xfile_read(xFile* file); // allocate buffer, reads eof bytes and returns pointer to the buf
-
 typedef struct {
 	xFile file;
 	int dnodes_no;
 	dNode dnodes;
 } xDir;
+
+void xfile_open(int ino, xFile *file);
+void xfile_close(xFile* file);
+void xfile_create(xFile* file, int eof);
+char* xfile_read(xFile* file); // allocate buffer, reads eof bytes and returns pointer to the buf
+void xfile_write(xFile* file, char* data, int len);
+void linkFile(xDir* dir, int no, char* name, int kind);
 
 void xdir_open(int ino, xDir* dir);
 void xdir_create(xDir* parent, char* name, xDir* newdir);

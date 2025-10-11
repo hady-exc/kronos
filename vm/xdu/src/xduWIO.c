@@ -69,6 +69,38 @@ char* toUTF8(char *src, int *src_len)
 	return utf;
 }
 
+char* fromUTF8(const char* src, int* src_len)
+{
+	int wchar_len = MultiByteToWideChar(CP_UTF8, 0, src, (*src_len), NULL, 0);
+	wchar_t* wideString = malloc(sizeof(wchar_t) * wchar_len);
+	assert(wideString != NULL);
+	MultiByteToWideChar(CP_UTF8, 0, src, (*src_len), wideString, wchar_len);
+
+	int dkoi_len = WideCharToMultiByte(20866, 0, wideString, wchar_len, NULL, 0, NULL, NULL);
+	char* dkoi = malloc(dkoi_len);
+	WideCharToMultiByte(20866, 0, wideString, wchar_len, dkoi, dkoi_len, NULL, NULL);
+	free(wideString);
+
+	char *d = dkoi, *s = dkoi;
+	int i = dkoi_len, lines = 0;
+	while (i) {
+		char c = *s++;
+		if (c == CR) {
+			if ((i > 1) && (*s == LF)) {
+				*(d++) = RS; lines++;
+				i--; s++; 
+			} else {
+				*d++ = CR;
+			}
+		} else {
+			*d++ = c;
+		}
+		i--;
+	}
+	*src_len = dkoi_len - lines;
+	return dkoi;
+}
+
 void w_copy_file(char* path, char* content, int eof, int ctime, int wtime)
 {
 	char* converted = NULL;
@@ -107,7 +139,7 @@ void w_create_dir(char* path, int ctime, int wtime)
 			exit(1);
 		}
 	}
-/*  Commented out because did not work and is not much necessary for directories
+/*  Commented out because did not work for directories and also is not much necessary for directories
 	HANDLE file = CreateFile(path, GENERIC_READ | GENERIC_WRITE, 0, NULL, OPEN_EXISTING, 0, NULL );
 	if (file == INVALID_HANDLE_VALUE) {
 		printf("\nERROR opening directory %s for setting creation time\n", path);
@@ -119,6 +151,36 @@ void w_create_dir(char* path, int ctime, int wtime)
 		exit(1);
 	}
 */
+}
+
+void w_read_file(char* path, char** data, int* len)
+// returned buffer is malloc'ed, don't forget to free it after use
+{
+	HANDLE file = CreateFile(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
+	if (file == INVALID_HANDLE_VALUE) {
+		printf("ERROR opening file %s: %d", path, GetLastError());
+		exit(1);
+	}
+
+	unsigned long src_len = GetFileSize(file, NULL);
+	char* src = malloc(src_len);
+	if (src == NULL) {
+		printf("NO MEMORY to read file %s\n", path);
+		exit(1);
+	}
+
+	if (!ReadFile(file, src, src_len, NULL, NULL)) {
+		perror("Reafing file");
+		exit(1);
+	}
+
+	*data = src;
+	if (isText(path)) {
+		char *converted = fromUTF8(src, &src_len);
+		free(src);
+		*data = converted;
+	}
+	*len = src_len;
 }
 
 void init_console()

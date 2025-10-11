@@ -151,15 +151,41 @@ void download()
 	copy_dir(0, "TMP", "");
 }
 
-void upload(char* name)
+
+char* get_fname(char* path)
 {
-	printf("Uploading %s to /host-exchange\n", name);
+	int len = strlen(path);
+	char* s = path + len;
+	while (len) {
+		char c = *(--s);
+		if (c == "\\" || c == "/") return s++;
+		len--;
+	}
+	return path;
+}
+
+void upload(char* path)
+{
+	char* fname = get_fname(path);
+	if (*fname == 0) {
+		printf("invalid file name *s\n", path);
+		exit(1);
+	}
+	printf("Uploading %s to /host-exchange/%s\n", path, fname);
 	xDir root, upload;
 	xdir_open(0, &root);
 	xdir_create(&root, "host-exchange", &upload);
 	xdir_close(&root);
 
-	// do copy here
+	xFile file;
+	int len = 0;
+	char* data = null;
+	w_read_file(path, &data, &len); // w_read_file converts text file to DKOI
+	xfile_create(&file, len);
+	xfile_write(&file, data, len);
+	linkFile(&upload, file.inode_no, fname, d_file);
+	xfile_close(&file);
+	free(data);
 	xdir_close(&upload);
 }
 
@@ -179,7 +205,7 @@ int main(int argc, char** argv)
 	if (argc < 2) {
 		help(); return 0;
 	}
-	init_console();
+	//init_console();
 	mount(argv[1]);
 	if (argc > 2) {
 		if (strcmp(argv[2], "get") == 0) 
