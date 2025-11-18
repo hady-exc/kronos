@@ -1,11 +1,11 @@
 ﻿/*
 * XDU - XD Utility (c) KRONOS 
 * 
-* Purpose: Basic access to Kronos vistual XD volume from Windows host
+* Purpose: Basic access to Kronos virtual XD volume from Windows host
 * 
 */
 
-#include "stdio.h"
+#include <stdio.h>
 #include "xduDisk.h"
 #include "xduWIO.h"
 #include <string.h>
@@ -13,7 +13,12 @@
 #include <stdlib.h>
 #include "xduTime.h"
 
-void pindent(int level)   { while (level-- > 0) printf("  "); }
+extern void fatal(char* fmt, ...);
+
+void pindent(int level)   
+{ 
+	while (level-- > 0) printf("  "); 
+}
 
 void pfilename(char* fn, int dir)
 {
@@ -25,15 +30,14 @@ void pfilename(char* fn, int dir)
 
 void copy_file(int ino, char* fname, char* path)
 {
-	xFile file;
+	struct x_file file;
 	xfile_open(ino, &file);
 	assert((file.inode->mode & i_dir) == 0);
 
-	char fullname[248];
-	strncpy(fullname, path,248);
+	char fullname[250];
+	strncpy(fullname, path, 248);
 	if (strlen(fullname) + strlen(fname) >= 248) {
-		printf("ERROR: too long filename \"%s/%s\"\n", path, fname);
-		exit(1);
+		fatal("ERROR: too long filename \"%s/%s\"\n", path, fname);
 	}
 	strcat(fullname, "/");
 	strcat(fullname, fname);
@@ -46,15 +50,14 @@ void copy_file(int ino, char* fname, char* path)
 
 void copy_dir(int ino, char* fname, char* path)
 {
-	xDir dir;
+	struct x_dir dir;
 	xdir_open(ino, &dir);
 	assert(dir.file.inode->mode & i_dir);
 
-	char fullname[248];
+	char fullname[250];
 	strncpy(fullname, path, 248);
 	if (strlen(fullname) + strlen(fname) >= 248) {
-		printf("ERROR: too long filename \"%s/%s\"\n", path, fname);
-		exit(1);
+		fatal("ERROR: too long filename \"%s/%s\"\n", path, fname);
 	}
 	if (fullname[0] != 0) {
 		strcat(fullname, "/");
@@ -85,7 +88,7 @@ void copy_dir(int ino, char* fname, char* path)
 
 void listDir(int ino, int level)
 {
-	xDir dir;
+	struct x_dir dir;
 	xdir_open(ino, &dir);
 	/* print subdirectories */
 	int i = dir.dnodes_no;
@@ -158,7 +161,7 @@ char* get_fname(char* path)
 	char* s = path + len;
 	while (len) {
 		char c = *(--s);
-		if (c == "\\" || c == "/") return s++;
+		if (c == '\\' || c == '/') return s+1;
 		len--;
 	}
 	return path;
@@ -168,22 +171,21 @@ void upload(char* path)
 {
 	char* fname = get_fname(path);
 	if (*fname == 0) {
-		printf("invalid file name *s\n", path);
-		exit(1);
+		fatal("invalid file name %s\n", path);
 	}
 	printf("Uploading %s to /host-exchange/%s\n", path, fname);
-	xDir root, upload;
+	struct x_dir root, upload;
 	xdir_open(0, &root);
 	xdir_create(&root, "host-exchange", &upload);
 	xdir_close(&root);
 
-	xFile file;
+	struct x_file file;
 	int len = 0;
 	char* data = null;
 	w_read_file(path, &data, &len); // w_read_file converts text file to DKOI
 	xfile_create(&file, len);
 	xfile_write(&file, data, len);
-	linkFile(&upload, file.inode_no, fname, d_file);
+	xfile_link(&upload, file.inode_no, fname, d_file);
 	xfile_close(&file);
 	free(data);
 	xdir_close(&upload);
@@ -191,35 +193,41 @@ void upload(char* path)
 
 void help()
 {
-	printf("xdu -- XD virtual volume utility (c) 2025 Kronos\n");
-	printf("usage:\n");
-	printf("  xdu XDFile\n");
-	printf("     Prnts Kronos volume file tree, like as \"ls //*\"\n");
-	printf("  xdu XDFile get\n");
-	printf("    Copy all files and directories from Kronos volume to ./TMP/ directory\n");
-	printf("    NOTE: *.d and *.m files are converted to UTF-8\n\n");
+	fprintf(stderr, "xdu -- XD virtual volume utility (c) 2025 Kronos\n");
+	fprintf(stderr, "usage:\n");
+	fprintf(stderr, "  xdu XDFile\n");
+	fprintf(stderr, "     Prnts Kronos volume file tree, like as \"ls //*\"\n");
+	fprintf(stderr, "  xdu XDFile get\n");
+	fprintf(stderr, "    Copy all files and directories from Kronos volume to ./TMP/ directory\n");
+	fprintf(stderr, "    NOTE: *.d and *.m files are converted to UTF-8\n");
+	fprintf(stderr, "  xdu XDFile put fileName\n");
+	fprintf(stderr, "    Copies given file to /host-exchange folder of the XD volume.\n");
+	fprintf(stderr, "    NOTE: *.d and *.m files are converted from UTF-8 to KOI8-R\n");
+	fprintf(stderr, "  xdu XDFile zfb\n");
+	fprintf(stderr, "    Fills all free blocks on XD volume by zeroes\n");
+	fprintf(stderr, "    to make its ZIP archive more compact\n\n");
+	exit(0);
 }
 
 int main(int argc, char** argv)
 {
 	if (argc < 2) {
-		help(); return 0;
+		help(); 
 	}
-	//init_console();
 	mount(argv[1]);
 	if (argc > 2) {
-		if (strcmp(argv[2], "get") == 0) 
+		if (strcmp(argv[2], "get") == 0) {
 			download();
-		else if (strcmp(argv[2], "zfb") == 0) {
-			printf("%d blocks cleaned\n", zeroFreeBlocks());
+		} else if (strcmp(argv[2], "zfb") == 0) {
+				printf("%d blocks cleaned\n", zero_free_blocks());
 		} else if (strcmp(argv[2], "put") == 0) {
 			if (argc <= 3) {
-				help; exit(0);
+				help(); 
 			} else {
 				upload(argv[3]);
 			}
 		} else {
-			help(); exit(0);
+			help(); 
 		}
 	} else list();
 	unmount();

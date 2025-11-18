@@ -5,8 +5,9 @@
 #include "xduTime.h"
 #include <assert.h>
   
+extern void fatal(char* fmt, ...);
 
-void set_time_attrs(HANDLE file, int created, int modified)
+static void set_time_attrs(HANDLE file, int created, int modified, char* fname)
 {
 	ULARGE_INTEGER wtime;
 	FILETIME ct, wt;
@@ -17,7 +18,7 @@ void set_time_attrs(HANDLE file, int created, int modified)
 	wt.dwHighDateTime = wtime.HighPart;
 	wt.dwLowDateTime = wtime.LowPart;
 	if (!SetFileTime(file, &ct, NULL, &wt)) {
-		printf("\nERROR: can't set time");
+		fprintf(stderr, "\nWARNING: can't set time to \"%s\": %s\n", fname, strerror(errno));
 	}
 }
 
@@ -26,7 +27,6 @@ int isText(char* fname)
 	int len = strlen(fname);
 	char* c = fname + len;
 	do { len--; c--; } while (len && *c != '.');
-	//return 0;
 	return ((len != 0) && ((strcmp(c, ".m") == 0) || (strcmp(c, ".d") == 0)));
 }
 
@@ -107,8 +107,7 @@ void w_copy_file(char* path, char* content, int eof, int ctime, int wtime)
 
 	HANDLE file = CreateFile(path, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE) {
-		printf("ERROR creating file %s: %d", path, GetLastError());
-		exit(1);
+		fatal("ERROR creating file %s: %d", path, strerror(errno));
 	}
 	char* src = content;
 	int src_len = eof;
@@ -119,13 +118,12 @@ void w_copy_file(char* path, char* content, int eof, int ctime, int wtime)
 
 	int written = 0;
 	if (!WriteFile(file, src, src_len, &written, NULL)) {
-		printf("ERROR writing to file %s: %d\n", path, GetLastError());
-		exit(1); 
+		fatal("ERROR writing to file %s: %s\n", path, strerror(errno));
 	}
 	if (converted) { free(converted); converted = NULL; }
-	set_time_attrs(file, ctime, wtime);
+	set_time_attrs(file, ctime, wtime, path);
 	if (!CloseHandle(file)) {
-		printf("ERROR closing % s: % d\n", path, GetLastError());
+		fatal("ERROR closing %s: %s\n", path, strerror(errno));
 		exit(1);
 	}
 }
@@ -135,8 +133,7 @@ void w_create_dir(char* path, int ctime, int wtime)
 	if (!CreateDirectory(path, NULL)) {
 		int error = GetLastError();
 		if (error != ERROR_ALREADY_EXISTS) {
-			printf("Can not create directory \"%s\"  error %d\n", path, error);
-			exit(1);
+			fatal("Can not create directory \"%s\": %s\n", path, strerror(error));
 		}
 	}
 /*  Commented out because did not work for directories and also is not much necessary for directories
@@ -154,24 +151,21 @@ void w_create_dir(char* path, int ctime, int wtime)
 }
 
 void w_read_file(char* path, char** data, int* len)
-// returned buffer is malloc'ed, don't forget to free it after use
+// returned  in "data" buffer is malloc'ed, don't forget to free it after use
 {
 	HANDLE file = CreateFile(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
 	if (file == INVALID_HANDLE_VALUE) {
-		printf("ERROR opening file %s: %d", path, GetLastError());
-		exit(1);
+		fatal("ERROR opening file %s: %s", path, strerror(errno));
 	}
 
 	unsigned long src_len = GetFileSize(file, NULL);
 	char* src = malloc(src_len);
 	if (src == NULL) {
-		printf("NO MEMORY to read file %s\n", path);
-		exit(1);
+		fatal("NO MEMORY to read file %s\n", path);
 	}
 
 	if (!ReadFile(file, src, src_len, NULL, NULL)) {
-		perror("Reafing file");
-		exit(1);
+		fatal("ERROR reafing file %s: %s", path, strerror(errno));
 	}
 
 	*data = src;
@@ -181,10 +175,4 @@ void w_read_file(char* path, char** data, int* len)
 		*data = converted;
 	}
 	*len = src_len;
-}
-
-void init_console()
-{
-	if (!SetConsoleOutputCP(20866))
-		printf("Set Console CP error code %d\n", GetLastError());
 }

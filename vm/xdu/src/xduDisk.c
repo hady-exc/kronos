@@ -14,42 +14,40 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
+#include <stdint.h>
 #include "xduDisk.h"
 #include "xduTime.h"
 
 typedef int  WBLOCK[1024];
 typedef char CBLOCK[4096];
-typedef iNodeRec IBLOCK[4096 / 64];
+typedef struct i_node IBLOCK[4096 / 64];
 
-typedef struct {
+struct x_disk {
 	FILE* file;
-
 	union {
 		char* data;
 		WBLOCK* iblocks; 
 		CBLOCK* cblocks; 
 	};
-
-	iNodeRec* inodes;
+	iNode inodes;
 	char label[12];
 	int i_no;
 	int b_no;
 	int c_time;
 	int* bset;
 	int* iset;
-} xDiskRec;
+};
 
-static xDiskRec *disk = NULL;
+static struct x_disk* disk = NULL;
 
 void fatal(char* fmt, ...)
 {
 	va_list args;
 	va_start(args, fmt);
-	vprintf(fmt, args);
+	vfprintf(stderr,fmt, args);
 	va_end(args);
 	exit(1);
 }
-
 
 #define ISSET(set,bit) (((set[bit/32] >> (bit % 32)) & 1))
 #define ISBUSY(set,bit) (!ISSET(set,bit))
@@ -60,18 +58,24 @@ void flushBlock(int no)
 {
 	assert(disk != null && no >= 0 && no < disk->b_no);
 
-	assert(fseek(disk->file, no * 4096, SEEK_SET) == 0);
-	if (fwrite(disk->data + 4096 * no, 1, 4096, disk->file) != 4096)
+	if (fseek(disk->file, no * 4096, SEEK_SET) != 0) {
 		fatal("Error writing block %d\n", no);
+	}
+	if (fwrite(disk->data + 4096 * no, 1, 4096, disk->file) != 4096) {
+		fatal("Error writing block %d\n", no);
+	}
 }
 
 void flushInode(int no)
 {
 	assert(disk != null && no >= 0 && no < disk->i_no);
 	
-	assert(fseek(disk->file, 8192 + no*64, SEEK_SET) == 0);
-	if (fwrite(disk->inodes + no, 1, 64, disk->file) != 64)
+	if (fseek(disk->file, 8192 + no * 64, SEEK_SET) != 0) {
 		fatal("Error writing iNode %d\n", no);
+	}
+	if (fwrite(disk->inodes + no, 1, 64, disk->file) != 64) {
+		fatal("Error writing iNode %d\n", no);
+	}
 }
 
 void dnode2cash(char* to, char* from)
@@ -79,27 +83,28 @@ void dnode2cash(char* to, char* from)
 	memcpy(to, from, 64);
 }
 
-void flushDnode(xDir* dir, int index)
+void flushDnode(xDir dir, int index)
 // copies dNode to a global cash and then flushes to disk
 {
 	assert(index >= 0 && index < dir->dnodes_no);
 
 	int block_no = index / 64;
-	char* block = disk->cblocks + dir->file.blocks[block_no];
-//	memcpy(block + 64 * (index % 64), dir->dnodes + index, 64);
-	dnode2cash(block + 64 * (index % 64), dir->dnodes + index);
+	char* block = (char *)(disk->cblocks + dir->file.blocks[block_no]);
+	memcpy(block + 64 * (index % 64), dir->dnodes + index, 64);
+//	dnode2cash(block + 64 * (index % 64), dir->dnodes + index);
 	flushBlock(dir->file.blocks[block_no]);
 }
 
-int calcBusy(int* set, int sz)
+static int calcBusy(int* set, int sz)
 {
 	int total = 0;
-	for (int i = 0; i < sz; i++) 
+	for (int i = 0; i < sz; i++) {
 		if (ISBUSY(set, i)) total++;
+	}
 	return total;
 }
 
-void unpackSuper(xDiskRec* disk) {
+static void unpackSuper(struct x_disk* disk) {
 	char* super = disk->data + 4096;
 	strncpy(disk->label, super, 8);
 	int *label = (int*)super;
@@ -112,37 +117,35 @@ void unpackSuper(xDiskRec* disk) {
 }
 
 void mount(char* fname) {
-	static xDiskRec _disk;
-	
 	assert(disk == null);
+
+	static struct x_disk _disk = {0};
+	
 	FILE *file = fopen(fname, "r+b");
 	if (!file) {
-		perror("file open");
-		exit(1);
+		fatal("ERROR openinig file %s: %s\n", fname, strerror(errno));
 	}
 	if (fseek(file, 0, SEEK_END) != 0) {
-		perror("SEEK ERROR");
-		exit(1);
+		fatal("ERROR repositioning file %s: %s\n", fname, strerror(errno));
 	}
 	long fsize = ftell(file);
 	if (fsize < 0) {
-		perror("FTELL ERROR");
-		exit(1);
+		fatal("ERROR getting length of file %s: %s\n", fname, strerror(errno));
 	}
 	if (fsize % 4096 != 0) fatal("%s: invalid file size %d", fname, fsize);
 	
 	_disk.data = (char *)malloc(fsize);
 	if (_disk.data == NULL) 
-		fatal("not enough memory for %d bytes\n", fsize);
+		fatal("ERROR: not enough memory for %d bytes\n", fsize);
 
 	rewind(file);
 	size_t read = fread(_disk.data, 1, fsize, file);
 	if (read != fsize) {
-		perror("FILE READ ERROR"); 
-		exit(1);
+		fatal("ERROR reading file %s: %s\n", fname, strerror(errno)); 
 	}
 
 	unpackSuper(&_disk);
+
 	_disk.file = file;
 	disk = &_disk;
 	printf("XD volume \"%s\":\n", fname);
@@ -163,25 +166,26 @@ void unmount()
 	}
 }
 
-int allocBlocks(int no, int* buf)
+static int allocBlocks(int no, int* buf)
 // returns true if not enough free space
 {
 	int b = 0, high = (disk->b_no + 31) / 32;
-	while (b < high && disk->bset[b] == 0) b++;
+
+	while (b < high && disk->bset[b] == 0) b++; // skip 32-bit chunks of busy blocks
 	b = b * 32;
 	while (no && b < disk->b_no) {
 		if (ISSET(disk->bset, b)) {
 			EXCL(disk->bset, b);
 			*(buf++) = b;
 			no--;
-			// TODO: zero block
+			// TODO: zero the block
 		}
 		b++;
 	}
 	return no != 0;
 }
 
-int allocInode()
+static int allocInode()
 // returns allocated inode index or -1
 {
 	int no = 0, high = (disk->i_no + 31) / 32;
@@ -196,7 +200,7 @@ int allocInode()
 	return -1;
 }
 
-void xfile_extend(xFile* file, int neweof)
+void xfile_extend(xFile file, int neweof)
 {
 	assert((file != null && file->inode != null));
 	assert(neweof > file->inode->eof);
@@ -212,37 +216,46 @@ void xfile_extend(xFile* file, int neweof)
 	int required = (neweof + 4095) / 4096;
 	if (required > 8) {
 		if ((file->inode->mode & i_long) == 0) { // convert to long
-			if (required > 4096) fatal("files larger 4Mb are not supported, sorry\n");
+			if (required > 4096) {
+				fatal("files larger 4Mb are not supported yet, sorry\n");
+			}
 			int xb = 0;
-			if (allocBlocks(1, &xb)) fatal("not enough free space on XD volume\n");
+			if (allocBlocks(1, &xb)) {
+				fatal("not enough free space on XD volume\n");
+			}
 			for (int i = 0; i < file->blocks_no; i++) {
 				disk->iblocks[xb][i] = file->inode->ref[i];
 			}
 			file->inode->ref[0] = xb;
 			file->inode->mode |= i_long;
-			file->blocks = disk->iblocks + xb;
+			file->blocks = (int *)(disk->iblocks + xb);
 		}
-		if (allocBlocks(required - file->blocks_no, &(disk->iblocks[file->inode->ref[0]]) + file->blocks_no))
+		if (allocBlocks(required - file->blocks_no, (int *)&(disk->iblocks[file->inode->ref[0]]) + file->blocks_no)) {
 			fatal("not enough free space on XD volume\n");
+		}
 		flushBlock(file->inode->ref[0]);
 	} else {
-		if (allocBlocks(required - file->blocks_no, file->inode->ref + file->blocks_no))
+		if (allocBlocks(required - file->blocks_no, file->inode->ref + file->blocks_no)) {
 			fatal("not enough free space on XD volume\n");
+		}
 	}
 	file->blocks_no = required;
+	char* newdata = malloc(file->blocks_no * 4096);
 	if (file->data != null) {
-		char* newdata = malloc(file->blocks_no * 4096);
-		if (newdata == null) fatal("no memory\n");
-		memcpy(newdata, file->data, file->inode->eof);
+		if (newdata != null) {
+			memcpy(newdata, file->data, file->inode->eof);
+		} else {
+			fatal("no memory\n");
+		}			
 		free(file->data);
-		file->data = newdata;
 	}
+	file->data = newdata;
 	file->inode->eof = neweof;
 	flushInode(file->inode_no);
 	flushBlock(1); // superblock, including free blocks map
 }
 
-void xfile_open(int ino, xFile* file)
+void xfile_open(int ino, xFile file)
 {
 	assert((file != null));
 	assert((disk != null));
@@ -264,12 +277,14 @@ void xfile_open(int ino, xFile* file)
 	file->data = null;
 }
 
-void xfile_create(xFile* file, int eof)
+void xfile_create(xFile file, int eof)
 {
 	assert(disk != null && file != null);
 
 	file->inode_no = allocInode();
-	if (file->inode_no < 0) fatal("Too many files on XD volume\n");
+	if (file->inode_no < 0) {
+		fatal("Too many files on XD volume\n");
+	}
 	flushBlock(1); // superblock
 
 	file->inode = get_inode(file->inode_no);
@@ -285,7 +300,7 @@ void xfile_create(xFile* file, int eof)
 	if (eof > 0) xfile_extend(file, eof);
 }
 
-void xfile_close(xFile* file)
+void xfile_close(xFile file)
 {
 	assert((file != null && file->inode != null));
 
@@ -296,39 +311,43 @@ void xfile_close(xFile* file)
 	file->inode = null;
 }
 
-char* xfile_read(xFile* file) // allocate buffer, reads eof bytes and returns pointer to the buf
+char* xfile_read(xFile file) // allocate cash buffer, reads eof bytes into cash and returns pointer to the cash buffer
 {
 	assert((file != null && file->inode != null));
 
 	if (file->data == null) {
 		file->data = malloc(file->blocks_no * 4096);
-		if (file->data == null) 
+		if (file->data == null) {
 			fatal("not enough memory\n");
+		}
 		CBLOCK* buf = (CBLOCK*)file->data;
 		int i = 0;
-		while (i < file->blocks_no) 
+		while (i < file->blocks_no) {
 			memcpy(buf++, disk->cblocks + file->blocks[i++], sizeof(CBLOCK));
+		}
 	}
 	return file->data;
 }
 
-void xfile_write(xFile* file, char* data, int len)
+void xfile_write(xFile file, char* data, int len)
 {
 	assert(file != null);
 	assert(file->inode->eof == len); // file must be properly created before
+	assert(data != null);
+
 	int w = 0;
 	while (w < len) {
 		int bx = w / 4096;
 		int wl = ((len - w) >= 4096) ? 4096 : (len - w);
 		assert(bx < file->blocks_no);
-		char* block = disk->cblocks + file->blocks[bx];
+		char* block = (char *)(disk->cblocks + file->blocks[bx]);
 		memcpy(block, data + w, wl);
 		flushBlock(file->blocks[bx]);
 		w += wl;
 	}
 }
 
-void xdir_open(int ino, xDir* dir)
+void xdir_open(int ino, xDir dir)
 {
 	assert((dir != null));
 	assert((disk != null));
@@ -336,37 +355,36 @@ void xdir_open(int ino, xDir* dir)
 
 	iNode inode = &disk->inodes[ino];
 	if ((inode->mode & i_dir) == 0) {
-		printf("file %d is not directory", ino);
-		exit(1);
+		fatal("file %d is not a directory", ino);
 	}
 	if (inode->eof % sizeof(dNode) != 0) {
-		printf("WARNING: directory %d has invalid file size %d\n", ino, inode->eof);
+		fprintf(stderr, "WARNING: directory %d has invalid file size %d\n", ino, inode->eof);
 	}
 	xfile_open(ino, &dir->file);
-	dir->dnodes_no = inode->eof / sizeof(dNodeRec);
+	dir->dnodes_no = inode->eof / sizeof(struct d_node);
 	dir->dnodes = (dNode)xfile_read(&dir->file);
 }
 
-int xdir_find(xDir* dir, char* name)
+int xdir_find(xDir dir, char* name)
 // returns dNode index or -1
 {
 	int x = 0, nodes = dir->dnodes_no;
 	while (nodes--) {
 		dNode dnode = &(dir->dnodes[x]);
-		if ((dnode->kind & d_del) == 0 && strncmp(name, dnode->name, 32) == 0)
-		//if ((dir->dnodes[x].kind & d_del == 0) && (strncmp(name, dir->dnodes[x].name, 32)) == 0)
+		if ((dnode->kind & d_del) == 0 && strncmp(name, dnode->name, 32) == 0) {
 			return x;
+		}
 		x++;
 	}
 	return -1;
 }
 
-int allocDnode(xDir* dir)
+static int allocDnode(xDir dir)
 {
 	int x = 0;
 	while (x < dir->dnodes_no) {
 		dNode dnode = &(dir->dnodes[x]);
-		if ((dnode->kind & d_del) != 0 || (dnode->kind * d_entry) == 0 || dnode->name[0] == 0) {
+		if ((dnode->kind & d_del) != 0 || (dnode->kind & d_entry) == 0 || dnode->name[0] == 0) {
 			memset(&(dir->dnodes[x]), 0, 64);
 			return x;
 		}
@@ -379,8 +397,11 @@ int allocDnode(xDir* dir)
 	
 }
 
-void linkFile(xDir* dir, int no, char* name, int kind)
+void xfile_link(xDir dir, int no, char* name, int kind)
 {
+	assert(disk != null);
+	assert(dir != null && name != null);
+
 	int entry = xdir_find(dir, name);
 	int fileToDelete = -1;
 	if (entry >= 0) {
@@ -388,6 +409,7 @@ void linkFile(xDir* dir, int no, char* name, int kind)
 	} else {
 		entry = allocDnode(dir);
 	}
+
 	dNode dnode = dir->dnodes + entry;
 	strncpy(dnode->name, name, 32);
 	dnode->inode = no;
@@ -405,13 +427,18 @@ void linkFile(xDir* dir, int no, char* name, int kind)
 			if (blocks_no >= 1024) { 			
 				fatal("Existing file %s is too long to be deleted. Consider removing by OS Excelsior.\n", name);
 			}
+			int index_block = -1;
 			int* blocks = inode->ref;
-			if (inode->mode & i_long != 0) {
-				blocks = disk->iblocks[inode->ref[0]];
-				INCL(disk->bset, inode->ref[0]); // instead of real OS, in this utility it is safe to "free" block and use it in the following for-cycle
+			if ((inode->mode & i_long) != 0) {
+				index_block = inode->ref[0];
+				blocks = disk->iblocks[index_block];
 			}
-			for (int i = 0; i < blocks_no; i++) 
+			for (int i = 0; i < blocks_no; i++) {
 				INCL(disk->bset, blocks[i]);
+			}
+			if (index_block >= 0) {
+				INCL(disk->bset, index_block);
+			}
 
 			INCL(disk->iset, fileToDelete);
 			flushBlock(1); // super block
@@ -419,7 +446,7 @@ void linkFile(xDir* dir, int no, char* name, int kind)
 	}
 }
 
-void xdir_create(xDir* parent, char* name, xDir* newdir)
+void xdir_create(xDir parent, char* name, xDir newdir)
 {
 	assert(disk != null);
 	assert(parent != null);
@@ -432,13 +459,13 @@ void xdir_create(xDir* parent, char* name, xDir* newdir)
 		xdir_open(parent->dnodes[x].inode, newdir);
 		return;
 	}
-	xFile* file = &newdir->file;
+	xFile file = &newdir->file;
 	xfile_create(file, 64);  
-	assert(file->inode->eof == 64 && file->blocks_no == 1);
+	assert(file->inode->eof == 64 && file->blocks_no == 1 && file->data != null);
 
 	file->inode->mode = i_dir;
 	file->data = malloc(4096);
-	newdir->dnodes = file->data;
+	newdir->dnodes = (dNode)file->data;
 	newdir->dnodes_no = 1;
 
 	dNode dnode = newdir->dnodes;
@@ -446,10 +473,10 @@ void xdir_create(xDir* parent, char* name, xDir* newdir)
 	dnode->inode = parent->file.inode_no;
 	dnode->kind = d_dir + d_hidden;
 	flushDnode(newdir, 0);
-	linkFile(parent, newdir->file.inode_no, name, d_dir);
+	xfile_link(parent, newdir->file.inode_no, name, d_dir);
 }
 
-void xdir_close(xDir* dir)
+void xdir_close(xDir dir)
 {
 	if (dir == null || dir->file.data == null) return;
 	xfile_close(&dir->file);
@@ -471,7 +498,7 @@ int isEmpty(WBLOCK blk)
 	return 1;
 }
 
-int zeroFreeBlocks()
+int zero_free_blocks()
 {
 	assert(disk != null);
 	int i = disk->b_no, total = 0;
