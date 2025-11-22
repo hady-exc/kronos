@@ -22,6 +22,17 @@ static void set_time_attrs(HANDLE file, int created, int modified, char* fname)
 	}
 }
 
+static int get_time_attrs(HANDLE file, int* t_created, int* t_modified)
+{
+	FILETIME ct, mt;
+	if (!GetFileTime(file, &ct, NULL, &mt)) {
+		return 1;
+	}
+	*t_created = wft2kt(&ct);
+	*t_modified = wft2kt(&mt);
+	return 0;
+}
+
 int isText(char* fname)
 {
 	int len = strlen(fname);
@@ -150,7 +161,7 @@ void w_create_dir(char* path, int ctime, int wtime)
 */
 }
 
-void w_read_file(char* path, char** data, int* len)
+void w_read_file(char* path, char** data, int* len, int* t_created, int* t_modified)
 // returned  in "data" buffer is malloc'ed, don't forget to free it after use
 {
 	HANDLE file = CreateFile(path, GENERIC_READ, 0, NULL, OPEN_EXISTING, 0, NULL);
@@ -175,4 +186,10 @@ void w_read_file(char* path, char** data, int* len)
 		*data = converted;
 	}
 	*len = src_len;
+	if (get_time_attrs(file, t_created, t_modified)) {
+		fatal("Error getting timestamps of \"%s\"\n", path);
+	}
+	if (!CloseHandle(file)) {
+		fatal("Error closing \"%s\"\n", path, strerror(errno));
+	}
 }

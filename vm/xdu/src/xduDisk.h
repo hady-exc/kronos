@@ -70,6 +70,7 @@ void xfile_create(xFile file, int eof);
 char* xfile_read(xFile file); // returned buffer is allocated during the first read op and deallocated on xfile_close
 void xfile_write(xFile file, char* data, int len);
 void xfile_link(xDir dir, int no, char* name, int kind);
+void xfile_set_time(xFile file, int created, int modified);
 
 void xdir_open(int ino, xDir dir); // x_dir struct must be allocated and controlled outside
 void xdir_create(xDir parent, char* name, xDir newdir);

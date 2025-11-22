@@ -182,9 +182,12 @@ void upload(char* path)
 	struct x_file file;
 	int len = 0;
 	char* data = null;
-	w_read_file(path, &data, &len); // w_read_file converts text file to DKOI
+	int t_created = 0;
+	int t_modified = 0;
+	w_read_file(path, &data, &len, &t_created, &t_modified); // w_read_file converts text file to DKOI
 	xfile_create(&file, len);
 	xfile_write(&file, data, len);
+	xfile_set_time(&file, t_created, t_modified);
 	xfile_link(&upload, file.inode_no, fname, d_file);
 	xfile_close(&file);
 	free(data);

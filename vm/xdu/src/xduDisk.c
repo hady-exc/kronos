@@ -347,6 +347,13 @@ void xfile_write(xFile file, char* data, int len)
 	}
 }
 
+void xfile_set_time(xFile file, int created, int modified)
+{
+	file->inode->cTime = created;
+	file->inode->wTime = modified;
+	flushInode(file->inode_no);
+}
+
 void xdir_open(int ino, xDir dir)
 {
 	assert((dir != null));

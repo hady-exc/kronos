@@ -24,6 +24,39 @@ void kt2wst(int ktime, SYSTEMTIME* res)
 	FileTimeToSystemTime(&ftime, res);
 }
 
+static const int y4days = 1461;     // 365 * 4 + 1
+static const int y100days = 36524;  // y4days * 25 - 1;
+static const int y400days = 146097; // y100days * 4 + 1;
+static const int firstDate = 1985 * 365 + (1985 / 4) - (1985 / 100) + (1985 / 400) + 1; 
+static const int add[12] = { 0,1,-1,0,0,1,1,2,3,3,4,4 };
+
+static int packTime(int year, int month, int day, int hour, int min, int sec)
+{
+	int is_leap = (year % 4 == 0) && ((year % 100 != 0) || (year % 400 == 0));
+	year -= 1;
+	int d = 0;
+	d += year / 400 * y400days;
+	year %= 400;
+	d += year / 100 * y100days;
+	year %= 100;
+	d += year / 4 * y4days;
+	year %= 4;
+	d += year * 365 + (month -1)*30 + add[month-1];
+	if (is_leap && month > 2) d++;
+	d -= firstDate;
+	if (d < 0) return 0;
+	return d * 24 * 3600 + hour * 3600 + min * 60 + sec;
+}
+
+int wft2kt(FILETIME* wtime)
+{
+	SYSTEMTIME wt;
+	if (!FileTimeToSystemTime(wtime, &wt)) {
+		return -1;
+	}
+	return packTime(wt.wYear, wt.wMonth, wt.wDay, wt.wHour, wt.wMinute, wt.wSecond);
+}
+
 
 void pKronosTime(int ktime)
 {
