@@ -11,10 +11,10 @@ static void set_time_attrs(HANDLE file, int created, int modified, char* fname)
 {
 	ULARGE_INTEGER wtime;
 	FILETIME ct, wt;
-	wtime.QuadPart = ktime2wtime(created);
+	wtime.QuadPart = time_kronos_to_windows(created);
 	ct.dwHighDateTime = wtime.HighPart;
 	ct.dwLowDateTime = wtime.LowPart;
-	wtime.QuadPart = ktime2wtime(modified);
+	wtime.QuadPart = time_kronos_to_windows(modified);
 	wt.dwHighDateTime = wtime.HighPart;
 	wt.dwLowDateTime = wtime.LowPart;
 	if (!SetFileTime(file, &ct, NULL, &wt)) {
@@ -28,8 +28,8 @@ static int get_time_attrs(HANDLE file, int* t_created, int* t_modified)
 	if (!GetFileTime(file, &ct, NULL, &mt)) {
 		return 1;
 	}
-	*t_created = wft2kt(&ct);
-	*t_modified = wft2kt(&mt);
+	*t_created = windows_time_to_kronos(&ct);
+	*t_modified = windows_time_to_kronos(&mt);
 	return 0;
 }
 

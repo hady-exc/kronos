@@ -1,7 +1,11 @@
 /*
+ *   Purpose: I/O operation on XD virturl volume
+ */
+
+/*
 * disk layout:
 * block 0 -- cold booter
-* block 1 -- superblock (label, blocks ans inodes free/busy maps)
+* block 1 -- superblock (label, blocks and inodes free/busy maps)
 * blocks 2..(inodes_no + 63) DIV 64 + 2 - inodes table
 * . . . 
 * . . .
@@ -38,6 +42,7 @@ struct x_disk {
 	int* iset;
 };
 
+/* mounted XD volume */
 static struct x_disk* disk = NULL;
 
 void fatal(char* fmt, ...)
@@ -54,7 +59,7 @@ void fatal(char* fmt, ...)
 #define INCL(set,bit) set[bit/32] |= (1 << (bit % 32))
 #define EXCL(set,bit) set[bit/32] &= ~(1 << (bit % 32))
 
-void flushBlock(int no)
+static void flushBlock(int no)
 {
 	assert(disk != null && no >= 0 && no < disk->b_no);
 
@@ -66,7 +71,7 @@ void flushBlock(int no)
 	}
 }
 
-void flushInode(int no)
+static void flushInode(int no)
 {
 	assert(disk != null && no >= 0 && no < disk->i_no);
 	
@@ -78,12 +83,12 @@ void flushInode(int no)
 	}
 }
 
-void dnode2cash(char* to, char* from)
+static void dnode2cash(char* to, char* from)
 {
 	memcpy(to, from, 64);
 }
 
-void flushDnode(xDir dir, int index)
+static void flushDnode(xDir dir, int index)
 // copies dNode to a global cash and then flushes to disk
 {
 	assert(index >= 0 && index < dir->dnodes_no);
@@ -148,11 +153,13 @@ void mount(char* fname) {
 
 	_disk.file = file;
 	disk = &_disk;
+	int year, month, day, hour, minute, second;
+	unpack_kronos_time(disk->c_time, &year, &month, &day, &hour, &minute, &second);
 	printf("XD volume \"%s\":\n", fname);
 	printf("  label  : \"%s\"\n", disk->label);
 	printf("  blocks : %d / %d\n", disk->b_no, calcBusy(disk->bset, disk->b_no));
 	printf("  inodes : %d / %d\n", disk->i_no, calcBusy(disk->iset, disk->i_no));
-	printf("  created : "); pKronosTime(disk->c_time);
+	printf("  created : %02d.%02d.%d %02d:%02d:%02d", day, month, year, hour, minute, second);
 	printf("\n");
 }
 

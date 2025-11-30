@@ -1,7 +1,7 @@
 ﻿/*
 * XDU - XD Utility (c) KRONOS 
 * 
-* Purpose: Basic access to Kronos virtual XD volume from Windows host
+* Purpose: Basic access to Kronos virtual XD volume of KronosVM from Windows host
 * 
 */
 
@@ -15,28 +15,43 @@
 
 extern void fatal(char* fmt, ...);
 
-void pindent(int level)   
+static void pindent(int level)   
 { 
 	while (level-- > 0) printf("  "); 
 }
 
-void pfilename(char* fn, int dir)
+static void get_fname(dNode dnode, char buf[40])
+{
+	strncpy(buf, dnode->name, 32);
+	buf[32] = 0;
+}
+
+static void pfilename(dNode dnode)
 {
 	char fname[40];
-	strncpy(fname, fn, 33);
-	if (dir) strcat(fname, "/");
+	get_fname(dnode, fname);
+	if (dnode->kind & d_dir) strcat(fname, "/");
 	printf("%-16s", fname);
 }
 
-void copy_file(int ino, char* fname, char* path)
+static void pKronosTime(int ktime)
+{
+	int year, month, day, hour, minute, second;
+	unpack_kronos_time(ktime, &year, &month, &day, &hour, &minute, &second);
+	printf("%02d.%02d.%d %02d:%02d:%02d", day, month, year, hour, minute, second);
+}
+
+static void copy_file(int ino, char* fname, char* path)
 {
 	struct x_file file;
 	xfile_open(ino, &file);
 	assert((file.inode->mode & i_dir) == 0);
 
 	char fullname[250];
-	strncpy(fullname, path, 248);
-	if (strlen(fullname) + strlen(fname) >= 248) {
+	strncpy(fullname, path, 248); 
+	fullname[248] = 0;
+
+	if (strlen(fullname) + strlen(fname) >= (248-1)) {
 		fatal("ERROR: too long filename \"%s/%s\"\n", path, fname);
 	}
 	strcat(fullname, "/");
@@ -48,7 +63,7 @@ void copy_file(int ino, char* fname, char* path)
 	printf("%s -- DONE\n", fullname);
 }
 
-void copy_dir(int ino, char* fname, char* path)
+static void copy_dir(int ino, char* fname, char* path)
 {
 	struct x_dir dir;
 	xdir_open(ino, &dir);
@@ -56,7 +71,9 @@ void copy_dir(int ino, char* fname, char* path)
 
 	char fullname[250];
 	strncpy(fullname, path, 248);
-	if (strlen(fullname) + strlen(fname) >= 248) {
+	fullname[248] = 0;
+
+	if (strlen(fullname) + strlen(fname) >= (248-1)) {
 		fatal("ERROR: too long filename \"%s/%s\"\n", path, fname);
 	}
 	if (fullname[0] != 0) {
@@ -72,11 +89,12 @@ void copy_dir(int ino, char* fname, char* path)
 	while (i--) {
 		if ((dnode->kind & d_del) == 0) {
 			char fname[40];
-			strncpy(fname, dnode->name, 33);
+			strncpy(fname, dnode->name, 32);
+			fname[32] = 0;
+
 			if ((dnode->kind & d_dir) && (strcmp(fname,"..") != 0)) {
 				copy_dir(dnode->inode, fname, fullname);
-			}
-			else if (dnode->kind & d_file) {
+			} else if (dnode->kind & d_file) {
 				copy_file(dnode->inode, fname, fullname);
 			}
 		}
@@ -86,10 +104,11 @@ void copy_dir(int ino, char* fname, char* path)
 	printf("DIR %s -- DONE\n", fullname);
 }
 
-void listDir(int ino, int level)
+static void list_dir(int ino, int level)
 {
 	struct x_dir dir;
 	xdir_open(ino, &dir);
+
 	/* print subdirectories */
 	int i = dir.dnodes_no;
 	dNode dnode = dir.dnodes;
@@ -98,7 +117,7 @@ void listDir(int ino, int level)
 			if (dnode->kind & d_dir) {
 				iNode inode = get_inode(dnode->inode);
 				pindent(level);
-				pfilename(dnode->name,1);
+				pfilename(dnode);
 				printf(" CR:");
 				pKronosTime(inode->cTime);
 				printf("  MD:");
@@ -108,6 +127,7 @@ void listDir(int ino, int level)
 		}
 		dnode++;
 	}
+
 	/* print files */
 	i = dir.dnodes_no;
 	dnode = dir.dnodes;
@@ -115,18 +135,27 @@ void listDir(int ino, int level)
 		if ((dnode->kind & d_del) == 0) {
 			if (dnode->kind & d_file) {
 				iNode inode = get_inode(dnode->inode);
+				char fname[40];
+				get_fname(dnode, fname);
 				pindent(level);
-				pfilename(dnode->name,0);
-				printf(" %7d B  ", inode->eof);
-				printf("CR:");
+				printf("%-16s",fname);
+				printf(" %7d bytes\n", inode->eof);
+
+				/* file times are printed in form of Windows PowerShell commands that set times for the given file */
+				pindent(level+1);
+				printf("(Get-Item %s).creationtime=$(Get-Date \"", fname);
 				pKronosTime(inode->cTime);
-				printf("  MD:");
+				printf("\")\n");
+
+				pindent(level+1);
+				printf("(Get-Item %s).lastwritetime=$(Get-Date \"", fname);
 				pKronosTime(inode->wTime);
-				printf("\n");
+				printf("\")\n");
 			}
 		}
 		dnode++;
 	}
+
 	/* iterate subdirectories */
 	i = dir.dnodes_no;
 	dnode = dir.dnodes;
@@ -134,28 +163,30 @@ void listDir(int ino, int level)
 		if ((dnode->kind & d_del) == 0) {
 			if ((dnode->kind & d_dir) && (strncmp("..", dnode->name, 2) != 0)) {
 				pindent(level);
-				pfilename(dnode->name,1);
+				pfilename(dnode);
 				printf("\n");
-				listDir(dnode->inode, level + 1);
+				list_dir(dnode->inode, level + 1);
 			}
 		}
 		dnode++;
 	}
+
+	xdir_close(&dir);
 }
 
-void list()
+static void list()
 {
 	printf("/\n");
-	listDir(0, 1);
+	list_dir(0, 1);
 }
 
-void download()
+static void download()
 {
 	copy_dir(0, "TMP", "");
 }
 
 
-char* get_fname(char* path)
+static char* get_last_fname(char* path)
 {
 	int len = strlen(path);
 	char* s = path + len;
@@ -167,39 +198,47 @@ char* get_fname(char* path)
 	return path;
 }
 
-void upload(char* path)
+static void upload(int argc, char** argv)
 {
-	char* fname = get_fname(path);
-	if (*fname == 0) {
-		fatal("invalid file name %s\n", path);
-	}
-	printf("Uploading %s to /host-exchange/%s\n", path, fname);
 	struct x_dir root, upload;
 	xdir_open(0, &root);
 	xdir_create(&root, "host-exchange", &upload);
 	xdir_close(&root);
 
-	struct x_file file;
-	int len = 0;
-	char* data = null;
-	int t_created = 0;
-	int t_modified = 0;
-	w_read_file(path, &data, &len, &t_created, &t_modified); // w_read_file converts text file to DKOI
-	xfile_create(&file, len);
-	xfile_write(&file, data, len);
-	xfile_set_time(&file, t_created, t_modified);
-	xfile_link(&upload, file.inode_no, fname, d_file);
-	xfile_close(&file);
-	free(data);
+	for (int i = 3; i < argc; i++) {
+		char* path = argv[i];
+		char* fname = get_last_fname(path);
+		if (*fname == 0) {
+			fprintf(stderr, "invalid file name %s\n", path);		
+		} else {
+			printf("Uploading %s to /host-exchange/%s\n", path, fname);
+
+			struct x_file file;
+			int len = 0;
+			char* data = null;
+			int t_created = 0;
+			int t_modified = 0;
+			w_read_file(path, &data, &len, &t_created, &t_modified); // w_read_file converts text file to DKOI
+			xfile_create(&file, len);
+			xfile_write(&file, data, len);
+			xfile_set_time(&file, t_created, t_modified);
+			xfile_link(&upload, file.inode_no, fname, d_file);
+			xfile_close(&file);
+			free(data);
+		}
+	}
+
 	xdir_close(&upload);
 }
 
-void help()
+static void help()
 {
 	fprintf(stderr, "xdu -- XD virtual volume utility (c) 2025 Kronos\n");
 	fprintf(stderr, "usage:\n");
 	fprintf(stderr, "  xdu XDFile\n");
 	fprintf(stderr, "     Prnts Kronos volume file tree, like as \"ls //*\"\n");
+	fprintf(stderr, "     NOTE: file times are printed in form of Windows PowerShell\n");
+	fprintf(stderr, "     commands, that set original Kronos times for the given file\n");
 	fprintf(stderr, "  xdu XDFile get\n");
 	fprintf(stderr, "    Copy all files and directories from Kronos volume to ./TMP/ directory\n");
 	fprintf(stderr, "    NOTE: *.d and *.m files are converted to UTF-8\n");
@@ -227,7 +266,7 @@ int main(int argc, char** argv)
 			if (argc <= 3) {
 				help(); 
 			} else {
-				upload(argv[3]);
+				upload(argc, argv);
 			}
 		} else {
 			help(); 
